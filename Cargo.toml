@@ -4,3 +4,4 @@ version = "0.1.0"
 authors = ["Timm Behner <behner@cs.uni-bonn.de>"]
 
 [dependencies]
+libusb = "0.3"
