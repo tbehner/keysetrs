@@ -19,6 +19,7 @@ extern crate toml;
 extern crate structopt;
 #[macro_use] extern crate structopt_derive;
 
+use std::env;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
@@ -132,7 +133,20 @@ quick_main!(run);
 
 fn run() -> Result<()> {
     let cli = Cli::from_args();
-    // TODO this should not be hard coded, but read from ENV
+
+    let cloud_path = match env::var_os("CLOUDPATH"){
+        Some(val) => val,
+        None      => return Err("CLOUDPATH is not set".into())
+    };
+
+    let home_path = match env::var_os("HOME") {
+        Some(val) => val,
+        None      => return Err("Dude! Why is HOME not set?!".into())
+    }
+
+    // FIXME construct paths here, I mean real paths, from the aboves
+    // need config_path and xmodmap_path
+
     let config_content = read_file("/home/timm.behner/dotfiles/keyset.toml")?;
     let config: Config = toml::from_str(config_content.as_str()).chain_err(|| "Unable to parse toml config")?;
 
