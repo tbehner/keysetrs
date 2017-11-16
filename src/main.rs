@@ -24,11 +24,13 @@ use std::fs::File;
 use std::io::prelude::*;
 use structopt::StructOpt;
 
+
 #[derive(Deserialize, Debug)]
 struct Config {
     keyboards: HashMap<String, Keyboard>,
     usbids: HashMap<String, String>,
 }
+
 
 #[derive(Deserialize, Debug)]
 struct Keyboard {
@@ -38,11 +40,29 @@ struct Keyboard {
     xmodmapconfig: String,
 }
 
+
 impl Keyboard {
     fn xkbmap_command_args(&self) -> String {
         return format!("{} -variant {}", self.mapping, self.variant)
     }
+
+    fn setxkbmap_args(&self) -> Vec<String> {
+        let mut command: Vec<String> = Vec::new();
+        command.push(self.xkbmap_command_args());
+        for opt in self.options.iter() {
+            command.push(format!("{}", opt));
+        }
+        return command;
+    }
+
+    fn xmodmap_file(&self, path: &str) -> String {
+        let mut command = String::new();
+        command.push_str(path);
+        command.push_str(self.xmodmapconfig.as_str());
+        return command;
+    }
 }
+
 
 #[derive(StructOpt, Debug)]
 struct Cli {
@@ -58,6 +78,7 @@ struct Cli {
     #[structopt(short = "a", long = "attached", help="Show all attached keyboards.")]
     attached: bool,
 }
+
     
 extern crate libusb;
 use std::process::Command;
@@ -74,12 +95,22 @@ fn get_usb_ids() -> Result<Vec<String>> {
     Ok(result)
 }
 
-fn set_keyboard(keyboard: &Keyboard) {
-    let output = Command::new("echo")
-        .arg(keyboard.xkbmap_command_args())
-        .output()
-        .expect("Failed to execute process!");
-    println!("{}", str::from_utf8(&output.stdout).unwrap());
+
+fn set_keyboard(keyboard: &Keyboard, debug: bool) {
+    let xmodmap_path = "/home/timm.behner/Nextcloud/xmodmapconfigs/";
+    if debug {
+        println!("Command: setxkbmap {:?}", keyboard.setxkbmap_args());
+        println!("xmodmap file: {}", keyboard.xmodmap_file(xmodmap_path));
+    } else {
+        Command::new("setxkbmap")
+            .args(keyboard.setxkbmap_args())
+            .output()
+            .expect("Failed to execute process!");
+        Command::new("xmodmap")
+            .arg(keyboard.xmodmap_file(xmodmap_path))
+            .output()
+            .expect("Failed to execute process!");
+    }
 }
 
 
@@ -105,8 +136,6 @@ fn run() -> Result<()> {
     let config_content = read_file("/home/timm.behner/dotfiles/keyset.toml")?;
     let config: Config = toml::from_str(config_content.as_str()).chain_err(|| "Unable to parse toml config")?;
 
-    println!("Config {:?}", cli);
-
     if cli.list {
         println!("All configured keyboards:");
         for (k, _) in config.keyboards.iter() {
@@ -126,20 +155,15 @@ fn run() -> Result<()> {
         return Ok(())
     }
 
-    if cli.debug {
-        println!("Command: ");
-        return Ok(())
-    } else {
-        for id in usbids.iter() {
-            match config.usbids.get(id) {
-                Some(kb_name) => {
-                    match config.keyboards.get(kb_name) {
-                        Some(kb) => set_keyboard(kb),
-                        None => return Err(format!("{} is missing a configuration", kb_name).into()),
-                    }
-                },
-                None => {}
-            }
+    for id in usbids.iter() {
+        match config.usbids.get(id) {
+            Some(kb_name) => {
+                match config.keyboards.get(kb_name) {
+                    Some(kb) => set_keyboard(kb, cli.debug),
+                    None => return Err(format!("{} is missing a configuration", kb_name).into()),
+                }
+            },
+            None => {}
         }
     }
 
