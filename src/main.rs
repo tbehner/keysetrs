@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use structopt::StructOpt;
+use std::path;
 
 
 #[derive(Deserialize, Debug)]
@@ -56,11 +57,18 @@ impl Keyboard {
         return command;
     }
 
-    fn xmodmap_file(&self, path: &str) -> String {
-        let mut command = String::new();
-        command.push_str(path);
-        command.push_str(self.xmodmapconfig.as_str());
-        return command;
+    fn xmodmap_file(&self) -> Result<String> {
+        let xmodmap_path = get_xmodmap_path()?;
+        let xmodmap_config_path = xmodmap_path.join(&self.xmodmapconfig);
+
+        if !xmodmap_config_path.is_file() {
+            return Err("Xmodmap config does not exist!".into());
+        }
+
+        match xmodmap_config_path.to_str() {
+            Some(p) => Ok(String::from(p)),
+            None => Err("UTF-8 Error on xmodmap path".into())
+        }
     }
 }
 
@@ -78,6 +86,9 @@ struct Cli {
 
     #[structopt(short = "a", long = "attached", help="Show all attached keyboards.")]
     attached: bool,
+
+    #[structopt(short = "f", long = "force", help="Force a certain keyboard configuration.")]
+    force: Option<String>
 }
 
     
@@ -97,21 +108,22 @@ fn get_usb_ids() -> Result<Vec<String>> {
 }
 
 
-fn set_keyboard(keyboard: &Keyboard, debug: bool) {
-    let xmodmap_path = "/home/timm.behner/Nextcloud/xmodmapconfigs/";
+fn set_keyboard(keyboard: &Keyboard, debug: bool) -> Result<()> {
+    let xmodmap_file = keyboard.xmodmap_file()?;
     if debug {
         println!("Command: setxkbmap {:?}", keyboard.setxkbmap_args());
-        println!("xmodmap file: {}", keyboard.xmodmap_file(xmodmap_path));
+        println!("xmodmap file: {}", xmodmap_file);
     } else {
         Command::new("setxkbmap")
             .args(keyboard.setxkbmap_args())
             .output()
             .expect("Failed to execute process!");
         Command::new("xmodmap")
-            .arg(keyboard.xmodmap_file(xmodmap_path))
+            .arg(xmodmap_file)
             .output()
             .expect("Failed to execute process!");
     }
+    Ok(())
 }
 
 
@@ -127,27 +139,52 @@ fn read_file(path: &str) -> Result<String> {
     Ok(result)
 }
 
+fn get_config_path() -> Result<String> {
+    let home_dir = match env::var_os("HOME") {
+        Some(val) => val,
+        None      => return Err("Dude! Why is HOME not set?!".into())
+    };
+
+    let mut config_path = path::PathBuf::new();
+    config_path.push(home_dir);
+    config_path.push("dotfiles/keyset.toml");
+
+    if !config_path.is_file() {
+        return Err("Config file does not exist!".into());
+    }
+
+    match config_path.to_str() {
+        Some(path) => Ok(String::from(path)),
+        None       => Err("Config path resulted in an UTF-8 error!".into()),
+    }
+}
+
+fn get_xmodmap_path() -> Result<path::PathBuf> {
+    let cloud_path = match env::var_os("CLOUDPATH"){
+        Some(val) => val,
+        None      => return Err("CLOUDPATH is not set".into())
+    };
+
+    let mut xmodmap_path = path::PathBuf::new();
+    xmodmap_path.push(cloud_path);
+    xmodmap_path.push("xmodmapconfigs");
+    if !xmodmap_path.is_dir() {
+        return Err("Xmodmappath is not a directory!".into());
+    }
+    Ok(xmodmap_path)
+}
+
 
 quick_main!(run);
 
 
 fn run() -> Result<()> {
     let cli = Cli::from_args();
-
-    let cloud_path = match env::var_os("CLOUDPATH"){
-        Some(val) => val,
-        None      => return Err("CLOUDPATH is not set".into())
-    };
-
-    let home_path = match env::var_os("HOME") {
-        Some(val) => val,
-        None      => return Err("Dude! Why is HOME not set?!".into())
-    }
-
     // FIXME construct paths here, I mean real paths, from the aboves
     // need config_path and xmodmap_path
 
-    let config_content = read_file("/home/timm.behner/dotfiles/keyset.toml")?;
+    let config_path = get_config_path()?;
+    let config_content = read_file(config_path.as_str())?;
     let config: Config = toml::from_str(config_content.as_str()).chain_err(|| "Unable to parse toml config")?;
 
     if cli.list {
@@ -156,6 +193,17 @@ fn run() -> Result<()> {
             println!("{}", k);
         }
         return Ok(())
+    }
+
+    match cli.force {
+        Some(kb_name) => {
+            println!("Forcing config {}", kb_name);
+            match config.keyboards.get(&kb_name) {
+                Some(kb) => return set_keyboard(kb, cli.debug),
+                None     => return Err(format!("{} is not in your configuration!", kb_name).into()),
+            };
+        },
+        None => {}
     }
 
     let usbids = get_usb_ids()?;
@@ -173,12 +221,12 @@ fn run() -> Result<()> {
         match config.usbids.get(id) {
             Some(kb_name) => {
                 match config.keyboards.get(kb_name) {
-                    Some(kb) => set_keyboard(kb, cli.debug),
+                    Some(kb) => return set_keyboard(kb, cli.debug),
                     None => return Err(format!("{} is missing a configuration", kb_name).into()),
                 }
             },
             None => {}
-        }
+        };
     }
 
     Ok(())
