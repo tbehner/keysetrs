@@ -52,7 +52,7 @@ impl Keyboard {
         let mut command: Vec<String> = Vec::new();
         command.push(self.xkbmap_command_args());
         for opt in self.options.iter() {
-            command.push(format!("{}", opt));
+            command.push(format!("-option {}", opt));
         }
         return command;
     }
