@@ -44,17 +44,16 @@ struct Keyboard {
 
 
 impl Keyboard {
-    fn xkbmap_command_args(&self) -> String {
-        return format!("{} -variant {}", self.mapping, self.variant)
-    }
-
     fn setxkbmap_args(&self) -> Vec<String> {
-        let mut command: Vec<String> = Vec::new();
-        command.push(self.xkbmap_command_args());
+        let mut args: Vec<String> = Vec::new();
+        args.push(self.mapping.clone());
+        args.push(String::from("-variant"));
+        args.push(self.variant.clone());
         for opt in self.options.iter() {
-            command.push(format!("-option {}", opt));
+            args.push(String::from("-option"));
+            args.push(opt.clone());
         }
-        return command;
+        return args;
     }
 
     fn xmodmap_file(&self) -> Result<String> {
@@ -114,14 +113,17 @@ fn set_keyboard(keyboard: &Keyboard, debug: bool) -> Result<()> {
         println!("Command: setxkbmap {:?}", keyboard.setxkbmap_args());
         println!("xmodmap file: {}", xmodmap_file);
     } else {
-        Command::new("setxkbmap")
+        let out = Command::new("setxkbmap")
             .args(keyboard.setxkbmap_args())
             .output()
             .expect("Failed to execute process!");
-        Command::new("xmodmap")
-            .arg(xmodmap_file)
-            .output()
-            .expect("Failed to execute process!");
+        println!("status: {}", out.status);
+        println!("stdout: {}", String::from_utf8_lossy(&out.stdout));
+        println!("stderr: {}", String::from_utf8_lossy(&out.stderr));
+        // Command::new("xmodmap")
+            // .arg(xmodmap_file)
+            // .output()
+            // .expect("Failed to execute process!");
     }
     Ok(())
 }
