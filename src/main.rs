@@ -4,7 +4,6 @@
 mod errors {
     // Create the Error, ErrorKind, ResultExt, and Result types
     error_chain! { 
-    
         foreign_links {
             Libusb(::libusb::Error);
         }
@@ -92,7 +91,7 @@ struct Cli {
 
     
 extern crate libusb;
-use std::process::Command;
+use std::process;
 use std::str;
 
 
@@ -106,6 +105,14 @@ fn get_usb_ids() -> Result<Vec<String>> {
     Ok(result)
 }
 
+fn check_command_out(cmd_out: &process::Output) {
+    if ! cmd_out.status.success() || cmd_out.stderr.len() > 0 {
+        println!("status: {}", cmd_out.status);
+        println!("stdout: {}", String::from_utf8_lossy(&cmd_out.stdout));
+        println!("stderr: {}", String::from_utf8_lossy(&cmd_out.stderr));
+    }
+}
+
 
 fn set_keyboard(keyboard: &Keyboard, debug: bool) -> Result<()> {
     let xmodmap_file = keyboard.xmodmap_file()?;
@@ -113,17 +120,16 @@ fn set_keyboard(keyboard: &Keyboard, debug: bool) -> Result<()> {
         println!("Command: setxkbmap {:?}", keyboard.setxkbmap_args());
         println!("xmodmap file: {}", xmodmap_file);
     } else {
-        let out = Command::new("setxkbmap")
+        let xkbmap_out = process::Command::new("setxkbmap")
             .args(keyboard.setxkbmap_args())
             .output()
             .expect("Failed to execute process!");
-        println!("status: {}", out.status);
-        println!("stdout: {}", String::from_utf8_lossy(&out.stdout));
-        println!("stderr: {}", String::from_utf8_lossy(&out.stderr));
-        // Command::new("xmodmap")
-            // .arg(xmodmap_file)
-            // .output()
-            // .expect("Failed to execute process!");
+        check_command_out(&xkbmap_out);
+        let xmodmap_out = process::Command::new("xmodmap")
+            .arg(xmodmap_file)
+            .output()
+            .expect("Failed to execute process!");
+        check_command_out(&xmodmap_out);
     }
     Ok(())
 }
@@ -182,8 +188,6 @@ quick_main!(run);
 
 fn run() -> Result<()> {
     let cli = Cli::from_args();
-    // FIXME construct paths here, I mean real paths, from the aboves
-    // need config_path and xmodmap_path
 
     let config_path = get_config_path()?;
     let config_content = read_file(config_path.as_str())?;
@@ -223,7 +227,10 @@ fn run() -> Result<()> {
         match config.usbids.get(id) {
             Some(kb_name) => {
                 match config.keyboards.get(kb_name) {
-                    Some(kb) => return set_keyboard(kb, cli.debug),
+                    Some(kb) => {
+                        println!("Set to {}", kb_name);
+                        return set_keyboard(kb, cli.debug);
+                    },
                     None => return Err(format!("{} is missing a configuration", kb_name).into()),
                 }
             },
